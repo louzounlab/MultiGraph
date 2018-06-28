@@ -1,5 +1,5 @@
 from feature_meta import NODE_FEATURES
-from multi_grapg_features import MultiGraphFeatures
+from multi_graph_features import MultiGraphFeatures
 from loggers import BaseLogger, PrintLogger
 import pickle
 import os
@@ -36,6 +36,9 @@ class Graphs:
             os.mkdir(self._path)
         self._logger.debug("graphs initialized")
 
+    def get_feature_meta(self):
+        return self._multi_graph.get_feature_meta()
+
     def is_directed(self):
         return self._directed
 
@@ -64,7 +67,7 @@ class Graphs:
     def _get_pickle_path(self):
         return os.path.join(self._path, self._database_name + ".pkl")
 
-    def build(self, force_build: bool = False, pick_ftr=False, force_rebuild_ftr=False):
+    def build(self, force_build: bool = False, pick_ftr=False, force_rebuild_ftr=False, should_zscore=True):
         if force_build or not os.path.exists(self._get_pickle_path()):
             self._logger.debug("build multi-graph - start")
             self._multi_graph = MultiGraphFeatures(self._database_name, self._logger, features_meta=self._features_meta,
@@ -72,7 +75,7 @@ class Graphs:
                                                    , pkl_dir=self._path, date_format=self._date_format)
             if not self._multi_graph.build():
                 return
-            self._multi_graph.build_features(largest_cc=self._largest_cc)
+            self._multi_graph.build_features(largest_cc=self._largest_cc, should_zscore=should_zscore)
             self._dump()
             self._logger.debug("build multi-graph - end")
         else:
@@ -81,7 +84,8 @@ class Graphs:
             self._multi_graph._pkl_dir = self._path
             if pick_ftr or force_rebuild_ftr:
                 self._multi_graph._features_meta = self._features_meta
-                self._multi_graph.build_features(pick_ftr=pick_ftr, force_rebuild=force_rebuild_ftr, largest_cc=self._largest_cc)
+                self._multi_graph.build_features(pick_ftr=pick_ftr, force_rebuild=force_rebuild_ftr,
+                                                 largest_cc=self._largest_cc, should_zscore=should_zscore)
                 self._dump(redump=True)
 
     # Adapter for multi graph
@@ -118,6 +122,12 @@ class Graphs:
     def features_matrix(self, graph):
         return self._multi_graph.feature_matrix(graph)
 
+    def nodes_for_graph(self, graph):
+        return self._multi_graph.nodes_for_graph(graph)
+
+    def nodes_count_list(self):
+        return self._multi_graph.nodes_count_list()
+
     def subgraphs(self, start_id=None, end_id=None):
         for gid in self._multi_graph._list_id[start_id: end_id]:
             yield self.subgraph_by_name(gid)
@@ -128,6 +138,9 @@ class Graphs:
     def graph_names(self, start_id=None, end_id=None):
         for gid in self._multi_graph._list_id[start_id: end_id]:
             yield gid
+
+    def norm_features(self, norm_function):
+        self._multi_graph.norm_features(norm_function)
 
 
 def test_graph():
