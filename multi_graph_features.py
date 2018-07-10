@@ -29,19 +29,20 @@ class MultiGraphFeatures:
         self._list_id = []  # list of graph ID's - gives a mapping index to ID
         self._dict_id = {}  # dictionary of graph ID's - gives a mapping ID to index
         self._directed = directed
-        if directed:
-            self._gnx_multi = nx.DiGraph()
-        else:
-            self._gnx_multi = nx.Graph()
+        self._gnx_multi = nx.DiGraph() if directed else nx.Graph()
         self._path = os.path.join('data', database_name)
         self._logger = logger
         self._files_path = files_path  # location of graphs as files
         self._logger.debug("finish initialization")
         self._features_matrix_dict = {}
+        self._nodes_for_graph = []
         self._features_calculated = False
 
+    def get_feature_meta(self):
+        return self._features_meta
+
     @staticmethod
-    def _strip_ext(file_name):
+    def _strip_txt(file_name):
         return file_name.split(".")[0]
 
     @staticmethod
@@ -61,26 +62,33 @@ class MultiGraphFeatures:
 
         graph_index = 0
         for graph_name in sorted(os.listdir(self._files_path), key=self._key_func):
-            # save graph indexing
-            self._list_id.append(self._strip_ext(graph_name))
-            self._dict_id[self._strip_ext(graph_name)] = graph_index
-            graph_index += 1
 
-            graph_file = open(os.path.join(self._files_path, graph_name))
+            # save graph indexing
+            self._list_id.append(self._strip_txt(graph_name))
+            self._dict_id[self._strip_txt(graph_name)] = graph_index
+            graph_index += 1
+            nodes_dict = {}
+
+            graph_file = open(os.path.join(self._files_path, graph_name), "rt", encoding='UTF-8')
+
             for row in graph_file:
                 [node_u, node_v, weight] = self._split_row(row)
                 self._logger.debug("adding edge:\t(" + str(node_u) + "," + str(node_v) + ")\tweight=" + str(weight))
                 # add the edge to the graph if it doesn't exist
                 self._gnx_multi.add_edge(node_u, node_v)
                 # add {graph_name=weight_under_the_graph} to the attributes of the edge
-                self._gnx_multi.edges[node_u, node_v][self._strip_ext(graph_name)] = float(weight)
+                self._gnx_multi.edges[node_u, node_v][self._strip_txt(graph_name)] = float(weight)
+                # count nodes
+                nodes_dict[node_u] = 0
+                nodes_dict[node_v] = 0
+            self._nodes_for_graph.append(len(nodes_dict))
         return True
 
     def subgraph_by_name(self, graph_name: str):
         if not self.is_graph(graph_name):
             self._logger.error("no graph named:\t" + graph_name)
             return
-        subgraph_edges = nx.DiGraph() if self._directed else nx.Graph
+        subgraph_edges = nx.DiGraph() if self._directed else nx.Graph()
         for edge in list(self._gnx_multi.edges(data=True)):
             if graph_name in edge[2]:
                 # edge is saved in the following method (from, to, {graph_name_i: weight_in_graph_i})
@@ -154,7 +162,7 @@ class MultiGraphFeatures:
         gnx_ftr.build(should_dump=True)  # build ALL_FEATURES
         self._features_matrix_dict[gnx_name] = gnx_ftr.to_matrix(dtype=np.float32, mtype=np.matrix)
 
-    def build_features(self, pick_ftr=False, force_rebuild=False, largest_cc=False):
+    def build_features(self, pick_ftr=False, force_rebuild=False, largest_cc=False, should_zscore=True):
         if len(self._features_matrix_dict) != 0 and not force_rebuild and not pick_ftr:
             return
         for gnx_name in self._list_id:
@@ -166,7 +174,8 @@ class MultiGraphFeatures:
             gnx_ftr = GraphFeatures(gnx, self._features_meta, dir_path=gnx_path, logger=self._logger,
                                     is_max_connected=largest_cc)
             gnx_ftr.build(should_dump=True, force_build=force_rebuild)  # build ALL_FEATURES
-            self._features_matrix_dict[gnx_name] = gnx_ftr.to_matrix(dtype=np.float32, mtype=np.matrix)
+            self._features_matrix_dict[gnx_name] = gnx_ftr.to_matrix(dtype=np.float32, mtype=np.matrix,
+                                                                     should_zscore=should_zscore)
 
     def features_matrix_by_indexes(self, graph_start=0, graph_end=0, for_all=False):
         if for_all:
@@ -175,7 +184,7 @@ class MultiGraphFeatures:
 
         np_matrix = self._features_matrix_dict[self.index_to_name(graph_start)]
         graph_index = graph_start + 1
-        while graph_index <= graph_end:
+        while graph_index < graph_end:
             np_matrix = np.concatenate((np_matrix, self._features_matrix_dict[self.index_to_name(graph_index)]))
             graph_index += 1
         return np_matrix
@@ -193,6 +202,13 @@ class MultiGraphFeatures:
         return self._features_matrix_dict[self.index_to_name(name_index)] if type(name_index) is int else \
             self._features_matrix_dict[name_index]
 
+    def nodes_for_graph(self, name_index):
+        return self._nodes_for_graph[name_index] if type(name_index) is int else \
+            self._nodes_for_graph[self.name_to_index(name_index)]
+
+    def nodes_count_list(self):
+        return self._nodes_for_graph
+
     def subgraphs(self, start_id=None, end_id=None):
         for gid in self._list_id[start_id: end_id]:
             yield self.subgraph_by_name(gid)
@@ -203,6 +219,10 @@ class MultiGraphFeatures:
 
     def number_of_graphs(self):
         return len(self._list_id)
+
+    def norm_features(self, norm_function):
+        for M in self._features_matrix_dict:
+            self._features_matrix_dict[M] = norm_function(self._features_matrix_dict[M])
 
 
 def test_multi_graph():
