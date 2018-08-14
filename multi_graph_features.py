@@ -62,15 +62,13 @@ class MultiGraphFeatures:
 
         graph_index = 0
         for graph_name in sorted(os.listdir(self._files_path), key=self._key_func):
-
             # save graph indexing
             self._list_id.append(self._strip_txt(graph_name))
             self._dict_id[self._strip_txt(graph_name)] = graph_index
             graph_index += 1
             nodes_dict = {}
 
-            graph_file = open(os.path.join(self._files_path, graph_name), "rt", encoding='UTF-8')
-
+            graph_file = open(os.path.join(self._files_path, graph_name))
             for row in graph_file:
                 [node_u, node_v, weight] = self._split_row(row)
                 self._logger.debug("adding edge:\t(" + str(node_u) + "," + str(node_v) + ")\tweight=" + str(weight))
